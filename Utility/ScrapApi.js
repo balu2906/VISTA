@@ -1,6 +1,6 @@
 `use strict`;
-const axios = require('axios');
-const cheerio = require('cheerio');
+
+const https = require("https");
 
 const getScrap = async (req, res) => {
     try {
@@ -14,32 +14,57 @@ const getScrap = async (req, res) => {
       allData[`301-n`] = [];
   
       while (true) {
-        console.log(`STARTED FETCHING ::PAGE:${pageNumber}`)
-        const url = `${baseUrl}?p=${pageNumber}`;
-        let rawData = await fetchJson(url); 
-        if (rawData.length === 0) {
-          console.log("MAXIMUM PAGES LOADED");
-          break;
+            console.log(`STARTED FETCHING ::PAGE:${pageNumber}`)
+            const url = `${baseUrl}?p=${pageNumber}`;
+            console.log(url , " :: TO BE FETCHED")
+            let rawData = await fetchJson(url);
+            if (rawData.length === 0) {
+                console.log("MAXIMUM PAGES LOADED");
+                break;
+            }
+            rawData.forEach(element => {
+                let count = element.comments;
+                var range = getRangeLabel(count);
+                allData[range].push(element);
+            });
+            let MoreMatchs = await hasMorePages(url);
+            
+            console.log("MoreMatches :: ",MoreMatchs)
+            if(!MoreMatchs){console.log("MAXIMUM PAGES LOADED 123 ");break;}
+            pageNumber++;
         }
-        rawData.forEach(element => {
-            let count = element.comment;
-            var range = getRangeLabel(count);
-            allData[range].push(element);
-        });
-        const response = await axios.get(url).catch(err => { return res.send(allData) })
-        const html = response.data;
-        const $ = cheerio.load(html);
-        if(!$('a.morelink').text().trim()){console.log("MAXIMUM PAGES LOADED");break;}
-        pageNumber++;
-      }
-      return res.send(allData);
+        return res.send(allData);
     } catch (error) {
-      console.error('Error scraping data:', error);
-      return res.send([]) // Return empty array in case of error
+        console.error('Error scraping data:', error);
+        return res.send([])
     }
-  }
+}
 
-  function getRangeLabel(count) {
+var hasMorePages = (url) => {
+    return new Promise((resolve,reject) => {
+        https.get(url, response => {
+            let HasMore = false
+            let data = '';
+            response.on('data', chunk => {
+                data += chunk;
+            })
+            response.on('end', () => {
+                let MoreLinkRegex = /<a[^>]*>More<\/a>/gi;
+                let matches =  MoreLinkRegex.exec(data);
+                const moreLinks = matches ? matches.map(match => match.replace(/<[^>]*>/g, '')) : [];
+                if(moreLinks.length) HasMore = true;
+                return resolve(HasMore)
+            })
+            response.on('error' , () => {
+                return resolve(false)
+            } )
+    
+        });
+    })
+
+}
+
+function getRangeLabel(count) {
     if (count < 100) {
         return '0-100';
     } else if (count < 200) {
@@ -52,29 +77,29 @@ const getScrap = async (req, res) => {
 }
 
 var fetchJson = async (scrapurl) => {
-    return new Promise(async (resolve,reject) => {
+    return new Promise(async (resolve, reject) => {
         const dataArray = [];
-        try {
-            const response = await axios.get(scrapurl);
-            const html = response.data;
-            const $ = cheerio.load(html);
-            $('td.title').each((index, element) => {
-                let obj = {
-                    title: '',
-                    comment: ''
+        https.get(scrapurl, response => {
+            let data = '';
+            response.on('data', chunk => {
+                data += chunk;
+            });
+            response.on('end', () => {
+                const titleRegex = /<td class="title"><span class="titleline"><a.*?>(.*?)<\/a>/g;
+                const commentsRegex = /(\d+)\s*&nbsp;comments/g;
+                let match;
+                while ((match = titleRegex.exec(data)) !== null) {
+                    const title = match[1].trim();
+                    const commentsMatch = commentsRegex.exec(data);
+                    const comments = commentsMatch ? commentsMatch[1].trim() : '0';
+                    dataArray.push({ title, comments });
                 }
-                obj.title = $(element).find('a').text().trim();
-                const subtextTd = $(element).closest('tr').next().find('td.subtext');
-                obj.comment = subtextTd.find('a').last().text().trim();
-                obj.comment = obj.comment.match(/\d+/)? parseInt(obj.comment.match(/\d+/)[0]) : 0;
-                if(obj.title){
-                    dataArray.push(obj);
-                }
-              });
-            return resolve(dataArray)
-        } catch (error) {
-            return resolve(dataArray)
-        }
+
+                return resolve(dataArray)
+            });
+        }).on('error', error => {
+            resolve(dataArray);
+        });
     })
 } 
 module.exports = {
