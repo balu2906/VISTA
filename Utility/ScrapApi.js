@@ -1,39 +1,57 @@
 `use strict`;
 
 const https = require("https");
+const fs = require("fs");
 
 const getScrap = async (req, res) => {
     try {
       let pageNumber = 1;
       var baseUrl = `https://news.ycombinator.com/`
       var allData = {};
+      const expiryTimeInSeconds = 25;
 
       allData[`0-100`] = [];
       allData[`101-200`] = [];
       allData[`201-300`] = [];
       allData[`301-n`] = [];
-  
-      while (true) {
-            console.log(`STARTED FETCHING ::PAGE:${pageNumber}`)
-            const url = `${baseUrl}?p=${pageNumber}`;
-            console.log(url , " :: TO BE FETCHED")
-            let rawData = await fetchJson(url);
-            if (rawData.length === 0) {
-                console.log("MAXIMUM PAGES LOADED");
-                break;
+      let path = "/temp/scrapedfile.json" 
+
+      fs.open(path,'r',async (err,fd) => {
+          if(!err){
+                const data = fs.readFileSync(path, 'utf8');
+                return res.send(JSON.parse(data))
+          }
+          else {
+            while (true) {
+                console.log(`STARTED FETCHING ::PAGE:${pageNumber}`)
+                const url = `${baseUrl}?p=${pageNumber}`;
+                console.log(url , " :: TO BE FETCHED")
+                let rawData = await fetchJson(url);
+                if (rawData.length === 0) {
+                    console.log("MAXIMUM PAGES LOADED");
+                    break;
+                }
+                rawData.forEach(element => {
+                    let count = element.comments;
+                    var range = getRangeLabel(count);
+                    allData[range].push(element);
+                });
+                let MoreMatchs = await hasMorePages(url);
+                
+                console.log("MoreMatches :: ",MoreMatchs)
+                if(!MoreMatchs){console.log("MAXIMUM PAGES LOADED 123 ");break;}
+                pageNumber++;
             }
-            rawData.forEach(element => {
-                let count = element.comments;
-                var range = getRangeLabel(count);
-                allData[range].push(element);
-            });
-            let MoreMatchs = await hasMorePages(url);
-            
-            console.log("MoreMatches :: ",MoreMatchs)
-            if(!MoreMatchs){console.log("MAXIMUM PAGES LOADED 123 ");break;}
-            pageNumber++;
-        }
-        return res.send(allData);
+            fs.writeFileSync(path, JSON.stringify(allData));
+            setInterval(() => {
+                if (fs.existsSync(path)) {
+                  deleteFile(path);
+                }
+            }, expiryTimeInSeconds * 1000);
+            return res.send(allData);   
+          }
+      })
+
     } catch (error) {
         console.error('Error scraping data:', error);
         return res.send([])
@@ -102,6 +120,16 @@ var fetchJson = async (scrapurl) => {
         });
     })
 } 
+
+let deleteFile = (path) => {
+    try {
+        fs.unlinkSync(path);
+        console.log('File deleted successfully.');
+      } catch (err) {
+        console.error('Error deleting file:', err);
+      }
+}
+
 module.exports = {
     getScrap
 }
